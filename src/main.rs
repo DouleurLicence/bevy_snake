@@ -6,6 +6,7 @@ use bevy::window::{PrimaryWindow, WindowResolution};
 
 /// Colors for the sprites
 const SNAKE_HEAD_COLOR: Color = Color::rgb(0.7, 0.7, 0.7);
+const SNAKE_SEGMENT_COLOR: Color = Color::rgb(0.3, 0.3, 0.3);
 const FOOD_COLOR: Color = Color::rgb(1.0, 0.0, 1.0);
 
 /// Parameters for the game
@@ -41,6 +42,7 @@ impl Direction {
     }
 }
 
+/// Size of the sprites
 #[derive(Component)]
 struct Size{
     width: f32,
@@ -59,22 +61,25 @@ impl Size {
 #[derive(Component)]
 struct Food;
 
+/// Head of the snake
 #[derive(Component)]
 struct SnakeHead {
     direction: Direction,
 }
 
+/// Part of the tail
+#[derive(Component)]
+struct SnakeSegment;
+
+/// Vector containing the parts of the tail
+#[derive(Default, Deref, DerefMut, Resource)]
+struct SnakeSegments(Vec<Entity>);
+
 pub struct SetupPlugin;
-
-pub struct WindowPlugin;
-
 
 // This plugin handles the logic for greeting users
 impl Plugin for SetupPlugin {
     fn build(&self, app: &mut App) {
-        let mut scheduler = Schedule::new();
-        scheduler.add_system(food_spawner);
-
         // Startup systems are only called once before other systems
         app.add_startup_system(init_window)
             .add_startup_system(init_camera)
@@ -83,8 +88,10 @@ impl Plugin for SetupPlugin {
             .add_system(food_spawner.run_if(on_timer(Duration::from_secs_f32(FOOD_SPAWN_TIMESTEP))))
             .add_system(snake_movement.run_if(on_timer(Duration::from_secs_f32(SNAKE_MOVEMENT_TIMESTEP))))
             .add_system(snake_movement_input.before(snake_movement))
-            .add_system(get_snake_pos)
+            .insert_resource(SnakeSegments::default())
+            // Translates the positions to a grid system
             .add_system(position_translation.in_base_set(CoreSet::PostUpdate))
+            // Scales the grid correctly
             .add_system(size_scaling.in_base_set(CoreSet::PostUpdate));
     }
 }
@@ -107,25 +114,31 @@ fn init_camera(mut commands: Commands) {
 
 /// This function spawns the entity with the default parameters of a SpriteBundle
 /// except that we change the color and the size of the sprite and transform
-fn spawn_snake(mut commands: Commands) {
-    commands
-        .spawn(SpriteBundle {
-            sprite: Sprite {
-                color: SNAKE_HEAD_COLOR,
+fn spawn_snake(
+    mut commands: Commands,
+    mut segments: ResMut<SnakeSegments>
+) {
+    *segments = SnakeSegments(vec![
+        commands
+            .spawn(SpriteBundle {
+                sprite: Sprite {
+                    color: SNAKE_HEAD_COLOR,
+                    ..default()
+                },
                 ..default()
-            },
-            transform: Transform {
-                scale: Vec3::new(10.0,10.0,10.0),
-                ..default()
-            },
-            ..default()
-        })
-        // Adds the SnakeHead component to the previously spawned entity
-        .insert(SnakeHead {
-            direction: Direction::Up
-        })
-        .insert(Position { x: 3, y: 3 })
-        .insert(Size::square(0.8));
+            })
+            // Adds the SnakeHead component to the previously spawned entity
+            .insert(SnakeHead {
+                direction: Direction::Up
+            })
+            // The head is a segment
+            .insert(SnakeSegment)
+            .insert(Position { x: 3, y: 3 })
+            .insert(Size::square(0.8))
+            .id(),
+        // Creates the tail
+        spawn_segment(commands, Position { x: 3, y: 2 }),
+    ]);
 }
 
 /// Spawns the food at a random position
@@ -149,7 +162,7 @@ fn food_spawner(mut commands: Commands) {
         .insert(Size::square(0.8));
 }
 
-/// This function coputes the scale of the sprites depending on the screen dimension
+/// This function computes the scale of the sprites depending on the screen dimension
 fn size_scaling(
     windows_query: Query<&Window, With<PrimaryWindow>>,
     mut q: Query<(&Size, &mut Transform)>
@@ -185,14 +198,6 @@ fn position_translation(
             convert(pos.y as f32, window.height() as f32, ARENA_HEIGHT as f32),
             0.0
         );
-    }
-}
-
-// The query here defines on which entities the system will run.
-// Here, it will run on every Position component that also have a Size component.
-fn get_snake_pos(time: Res<Time>, query: Query<&Position, With<Size>>) {
-    for snake in &query {
-        println!("Snake is at position: x:{}, y:{}!", snake.x, snake.y)
     }
 }
 
@@ -241,6 +246,24 @@ fn snake_movement(
             }
         };
     }
+}
+
+/// Spawns the segment and returns it
+fn spawn_segment(
+    mut commands: Commands,
+    position: Position
+) -> Entity {
+    commands.spawn(SpriteBundle {
+        sprite: Sprite {
+            color: SNAKE_SEGMENT_COLOR,
+            ..default()
+        },
+        ..default()
+    })
+        .insert(SnakeSegment)
+        .insert(position)
+        .insert(Size::square(0.65))
+        .id()
 }
 
 // TODO: Need to know how to update the UI and draw food and snake
