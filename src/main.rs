@@ -228,9 +228,22 @@ fn snake_movement_input(
 
 /// Handles the movement of the snake
 fn snake_movement(
-    mut heads: Query<(&mut Position, &SnakeHead)>
+    segments: ResMut<SnakeSegments>,
+    mut positions: Query<&mut Position>,
+    mut heads: Query<(Entity, &SnakeHead)>
 ) {
-    if let Some((mut head_pos, head)) = heads.iter_mut().next() {
+    if let Some((head_entity, head)) = heads.iter_mut().next() {
+        // Collects the segments positions into a vector
+        let segment_positions = segments
+            .iter()
+            // This can be done as *e is the id of the entity
+            .map(|e| *positions.get_mut(*e).unwrap())
+            .collect::<Vec<Position>>();
+
+        // Gets the Position of the head
+        let mut head_pos = positions.get_mut(head_entity).unwrap();
+
+        // We change the direction of the snake according to the input
         match head.direction {
             Direction::Left => {
                 head_pos.x -= 1;
@@ -245,6 +258,15 @@ fn snake_movement(
                 head_pos.y -= 1;
             }
         };
+
+        // Updates the Position for each SnakeSegment to the previous one
+        segment_positions
+            .iter()
+            // Merges the Positions of the segments and their Entities
+            .zip(segments.iter().skip(1))
+            .for_each(|(pos, segment)| {
+                *positions.get_mut(*segment).unwrap() = *pos;
+            })
     }
 }
 
