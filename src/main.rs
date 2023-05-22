@@ -61,6 +61,8 @@ impl Size {
 #[derive(Component)]
 struct Food;
 
+struct GrowthEvent;
+
 /// Head of the snake
 #[derive(Component)]
 struct SnakeHead {
@@ -75,6 +77,9 @@ struct SnakeSegment;
 #[derive(Default, Deref, DerefMut, Resource)]
 struct SnakeSegments(Vec<Entity>);
 
+#[derive(Default, Resource)]
+struct LastTailPosition(Option<Position>);
+
 pub struct SetupPlugin;
 
 // This plugin handles the logic for greeting users
@@ -88,7 +93,16 @@ impl Plugin for SetupPlugin {
             .add_system(food_spawner.run_if(on_timer(Duration::from_secs_f32(FOOD_SPAWN_TIMESTEP))))
             .add_system(snake_movement.run_if(on_timer(Duration::from_secs_f32(SNAKE_MOVEMENT_TIMESTEP))))
             .add_system(snake_movement_input.before(snake_movement))
+            // Inserts the vector of tail segments
             .insert_resource(SnakeSegments::default())
+            // The last tail position
+            .insert_resource(LastTailPosition::default())
+            // Event that is triggered every time the snake is on a Food entity
+            .add_event::<GrowthEvent>()
+            // Checks if the snake has eaten a Food entity after it has moved
+            .add_system(snake_eating.after(snake_movement))
+            // Make the snake grow if it ate a Food entity
+            .add_system(snake_growth.after(snake_eating))
             // Translates the positions to a grid system
             .add_system(position_translation.in_base_set(CoreSet::PostUpdate))
             // Scales the grid correctly
@@ -230,7 +244,8 @@ fn snake_movement_input(
 fn snake_movement(
     segments: ResMut<SnakeSegments>,
     mut positions: Query<&mut Position>,
-    mut heads: Query<(Entity, &SnakeHead)>
+    mut heads: Query<(Entity, &SnakeHead)>,
+    mut last_tail_position: ResMut<LastTailPosition>
 ) {
     if let Some((head_entity, head)) = heads.iter_mut().next() {
         // Collects the segments positions into a vector
@@ -266,7 +281,23 @@ fn snake_movement(
             .zip(segments.iter().skip(1))
             .for_each(|(pos, segment)| {
                 *positions.get_mut(*segment).unwrap() = *pos;
-            })
+            });
+
+        // We assign the resource to the position of the last segment
+        *last_tail_position = LastTailPosition(Some(*segment_positions.last().unwrap()))
+    }
+}
+
+fn snake_growth(
+    commands: Commands,
+    last_tail_position: Res<LastTailPosition>,
+    mut segments: ResMut<SnakeSegments>,
+    mut growth_reader: EventReader<GrowthEvent>
+) {
+    // If there is a triggered event (ie. the snake ate a Food entity)
+    if growth_reader.iter().next().is_some() {
+        // We spawn a new segment and add it in the list of segments at the last position
+        segments.push(spawn_segment(commands, last_tail_position.0.unwrap()));
     }
 }
 
@@ -286,6 +317,27 @@ fn spawn_segment(
         .insert(position)
         .insert(Size::square(0.65))
         .id()
+}
+
+/// We check for every food entity on the map if the head is on its position.
+/// If it is, the entity despawns and the snake grows.
+fn snake_eating(
+    mut commands: Commands,
+    mut growth_writer: EventWriter<GrowthEvent>,
+    food_positions: Query<(Entity, &Position), With<Food>>,
+    head_positions: Query<&Position, With<SnakeHead>>
+) {
+    for head_pos in head_positions.iter() {
+        for (entity, food_pos) in food_positions.iter() {
+            // The snake head is on the same tile as a Food entity
+            if food_pos == head_pos {
+                // Removes the Food entity
+                commands.entity(entity).despawn();
+                // Triggers the event that the snake has to grow
+                growth_writer.send(GrowthEvent);
+            }
+        }
+    }
 }
 
 // TODO: Need to know how to update the UI and draw food and snake
