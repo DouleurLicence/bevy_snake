@@ -161,8 +161,27 @@ fn spawn_snake(
     ]);
 }
 
+fn generate_food_position(
+    segments_positions_query: Query<&Position, With<SnakeSegment>>
+) -> Position {
+    let segments_positions = segments_positions_query.iter()
+        .collect::<Vec<&Position>>();
+    loop {
+        let x = (random::<f32>() * ARENA_WIDTH as f32) as i32;
+        let y = (random::<f32>() * ARENA_HEIGHT as f32) as i32;
+
+        let res = Position { x, y };
+        if !segments_positions.contains(&&res) {
+            return res;
+        }
+    }
+}
+
 /// Spawns the food at a random position
-fn food_spawner(mut commands: Commands) {
+fn food_spawner(
+    mut commands: Commands,
+    query: Query<&Position, With<SnakeSegment>>
+) {
     // Creates the sprite with the associated color
     commands.spawn(SpriteBundle {
         sprite: Sprite {
@@ -174,10 +193,7 @@ fn food_spawner(mut commands: Commands) {
         // Insert the Food Component
         .insert(Food)
         // Gives it a Position
-        .insert(Position {
-            x: (random::<f32>() * ARENA_WIDTH as f32) as i32,
-            y: (random::<f32>() * ARENA_HEIGHT as f32) as i32
-        })
+        .insert(generate_food_position(query))
         // Scales the sprite correctly
         .insert(Size::square(0.8));
 }
@@ -239,6 +255,7 @@ fn snake_movement_input(
             // Keeps the current direction
             head.direction
         };
+
         // The snake can't move on its own body
         if dir != head.direction.opposite() {
             head.direction = dir
