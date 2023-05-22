@@ -61,7 +61,11 @@ impl Size {
 #[derive(Component)]
 struct Food;
 
+/// Event triggerred every time the snake grows
 struct GrowthEvent;
+
+/// Event triggerred when the snake touches a wall or itself
+struct GameOverEvent;
 
 /// Head of the snake
 #[derive(Component)]
@@ -99,6 +103,8 @@ impl Plugin for SetupPlugin {
             .insert_resource(LastTailPosition::default())
             // Event that is triggered every time the snake is on a Food entity
             .add_event::<GrowthEvent>()
+            .add_event::<GameOverEvent>()
+            .add_system(game_over.after(snake_movement))
             // Checks if the snake has eaten a Food entity after it has moved
             .add_system(snake_eating.after(snake_movement))
             // Make the snake grow if it ate a Food entity
@@ -245,7 +251,8 @@ fn snake_movement(
     segments: ResMut<SnakeSegments>,
     mut positions: Query<&mut Position>,
     mut heads: Query<(Entity, &SnakeHead)>,
-    mut last_tail_position: ResMut<LastTailPosition>
+    mut last_tail_position: ResMut<LastTailPosition>,
+    mut game_over_writer: EventWriter<GameOverEvent>
 ) {
     if let Some((head_entity, head)) = heads.iter_mut().next() {
         // Collects the segments positions into a vector
@@ -274,6 +281,20 @@ fn snake_movement(
             }
         };
 
+        // The player loses if it hits the borders of the map
+        if head_pos.x < 0
+            || head_pos.y < 0
+            || head_pos.x as u32 >= ARENA_WIDTH
+            || head_pos.y as u32 >= ARENA_HEIGHT
+        {
+            game_over_writer.send(GameOverEvent);
+        }
+
+        // The player loses if the snake hits itself
+        if segment_positions.contains(&head_pos) {
+            game_over_writer.send(GameOverEvent);
+        }
+
         // Updates the Position for each SnakeSegment to the previous one
         segment_positions
             .iter()
@@ -286,6 +307,26 @@ fn snake_movement(
         // We assign the resource to the position of the last segment
         *last_tail_position = LastTailPosition(Some(*segment_positions.last().unwrap()))
     }
+}
+
+/// Handles the GameOverEvent
+fn game_over(
+    mut commands: Commands,
+    mut reader: EventReader<GameOverEvent>,
+    segments_res: ResMut<SnakeSegments>,
+    food: Query<Entity, With<Food>>,
+    segments: Query<Entity, With<SnakeSegment>>
+) {
+    // If the event exists
+    if reader.iter().next().is_some() {
+        // Deletes every segment of the snake and every food item
+        for ent in food.iter().chain(segments.iter()) {
+            commands.entity(ent).despawn();
+        }
+        // Re-launches the game
+        spawn_snake(commands, segments_res);
+    }
+    // TODO: Maybe pop-up the main menu ?
 }
 
 fn snake_growth(
