@@ -9,7 +9,8 @@ const SNAKE_HEAD_COLOR: Color = Color::rgb(0.7, 0.7, 0.7);
 const FOOD_COLOR: Color = Color::rgb(1.0, 0.0, 1.0);
 
 /// Parameters for the game
-const TIMESTEP: f32 = 1.0;
+const FOOD_SPAWN_TIMESTEP: f32 = 1.0;
+const SNAKE_MOVEMENT_TIMESTEP: f32 = 0.150;
 const ARENA_WIDTH: u32 = 15;
 const ARENA_HEIGHT: u32 = 15;
 
@@ -18,6 +19,26 @@ const ARENA_HEIGHT: u32 = 15;
 struct Position {
     x: i32,
     y: i32
+}
+
+#[derive(PartialEq, Copy, Clone)]
+enum Direction {
+    Left,
+    Right,
+    Up,
+    Down
+}
+
+/// Returns the opposite direction
+impl Direction {
+    fn opposite(self) -> Self {
+        match self {
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+            Self::Up => Self::Down,
+            Self::Down => Self::Up,
+        }
+    }
 }
 
 #[derive(Component)]
@@ -39,7 +60,9 @@ impl Size {
 struct Food;
 
 #[derive(Component)]
-struct SnakeHead;
+struct SnakeHead {
+    direction: Direction,
+}
 
 pub struct SetupPlugin;
 
@@ -57,8 +80,9 @@ impl Plugin for SetupPlugin {
             .add_startup_system(init_camera)
             .add_startup_system(spawn_snake)
             // Makes the food spawn every second
-            .add_system(food_spawner.run_if(on_timer(Duration::from_secs_f32(TIMESTEP))))
-            .add_system(snake_movement)
+            .add_system(food_spawner.run_if(on_timer(Duration::from_secs_f32(FOOD_SPAWN_TIMESTEP))))
+            .add_system(snake_movement.run_if(on_timer(Duration::from_secs_f32(SNAKE_MOVEMENT_TIMESTEP))))
+            .add_system(snake_movement_input.before(snake_movement))
             .add_system(get_snake_pos)
             .add_system(position_translation.in_base_set(CoreSet::PostUpdate))
             .add_system(size_scaling.in_base_set(CoreSet::PostUpdate));
@@ -97,7 +121,9 @@ fn spawn_snake(mut commands: Commands) {
             ..default()
         })
         // Adds the SnakeHead component to the previously spawned entity
-        .insert(SnakeHead)
+        .insert(SnakeHead {
+            direction: Direction::Up
+        })
         .insert(Position { x: 3, y: 3 })
         .insert(Size::square(0.8));
 }
@@ -170,31 +196,50 @@ fn get_snake_pos(time: Res<Time>, query: Query<&Position, With<Size>>) {
     }
 }
 
-/// This function handles the movement of the snake
-/// The possible inputs are LEFT, RIGHT, UP and DOWN
-fn snake_movement(
-    keys: Res<Input<KeyCode>>,
-    // I want entities that have SnakeHead, but only their Transform component and not the SnakeHead one
-    mut head_positions: Query<&mut Position, With<SnakeHead>>
+/// Updates the direction of the snake according to the inputs
+fn snake_movement_input(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut heads: Query<&mut SnakeHead>
 ) {
-    // We need to query the Transform as mut as it will be changed in this system
-    for mut pos in head_positions.iter_mut() {
-        if keys.pressed(KeyCode::Left) {
-            println!("Left is held");
-            pos.x -= 1;
+    if let Some(mut head) = heads.iter_mut().next() {
+        let dir: Direction = if keyboard_input.pressed(KeyCode::Left) {
+            Direction::Left
+        } else if keyboard_input.pressed(KeyCode::Right) {
+            Direction::Right
+        } else if keyboard_input.pressed(KeyCode::Up) {
+            Direction::Up
+        } else if keyboard_input.pressed(KeyCode::Down) {
+            Direction::Down
+        } else {
+            // Keeps the current direction
+            head.direction
+        };
+        // The snake can't move on its own body
+        if dir != head.direction.opposite() {
+            head.direction = dir
         }
-        if keys.pressed(KeyCode::Right) {
-            println!("Right is held");
-            pos.x += 1;
-        }
-        if keys.pressed(KeyCode::Up) {
-            println!("Up is held");
-            pos.y += 1;
-        }
-        if keys.pressed(KeyCode::Down) {
-            println!("Down is held");
-            pos.y -= 1;
-        }
+    }
+}
+
+/// Handles the movement of the snake
+fn snake_movement(
+    mut heads: Query<(&mut Position, &SnakeHead)>
+) {
+    if let Some((mut head_pos, head)) = heads.iter_mut().next() {
+        match head.direction {
+            Direction::Left => {
+                head_pos.x -= 1;
+            }
+            Direction::Right => {
+                head_pos.x += 1;
+            }
+            Direction::Up => {
+                head_pos.y += 1;
+            }
+            Direction::Down => {
+                head_pos.y -= 1;
+            }
+        };
     }
 }
 
