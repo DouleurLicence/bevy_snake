@@ -19,6 +19,13 @@ The executable should be launched.
 
 Relies on [TrunkRS](https://trunkrs.dev/).
 
+Run the following commands to install `trunk` and the WASM binder:
+
+```
+cargo install trunk
+cargo install --locked wasm-bindgen-cli
+```
+
 Run `trunk build` to build the HTML and SCSS files from the rust file.
 Then run `trunk serve` to launch a live server.
 You can now play in your browser !
